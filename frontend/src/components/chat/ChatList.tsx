@@ -1,8 +1,8 @@
-import { useEffect, useState } from 'react';
-import { useChat } from '../../context/ChatContext';
-import { Chat } from '../../types/chat';
-import { formatDistanceToNow } from 'date-fns';
-import { NewChatModal } from './NewChatModal';
+import { useEffect, useState } from "react";
+import { useChat } from "../../context/ChatContext";
+import { Chat } from "../../types/chat";
+import { formatDistanceToNow } from "date-fns";
+import { NewChatModal } from "./NewChatModal";
 
 interface ChatItemProps {
   chat: Chat;
@@ -21,7 +21,7 @@ function ChatItem({ chat, isActive, onClick }: ChatItemProps) {
   return (
     <div
       className={`flex items-center space-x-3 p-3 hover:bg-gray-50 cursor-pointer ${
-        isActive ? 'bg-gray-100' : ''
+        isActive ? "bg-gray-100" : ""
       }`}
       onClick={onClick}
     >
@@ -29,7 +29,7 @@ function ChatItem({ chat, isActive, onClick }: ChatItemProps) {
       <div className="relative">
         <div className="w-12 h-12 rounded-full bg-gray-300 flex items-center justify-center">
           <span className="text-lg text-gray-600">
-            {otherParticipant.username?.[0]?.toUpperCase() || '?'}
+            {otherParticipant.username?.[0]?.toUpperCase() || "?"}
           </span>
         </div>
         {chat.isTyping && (
@@ -41,11 +41,13 @@ function ChatItem({ chat, isActive, onClick }: ChatItemProps) {
       <div className="flex-1 min-w-0">
         <div className="flex justify-between items-baseline">
           <h3 className="text-sm font-medium text-gray-900 truncate">
-            {otherParticipant.username || 'Unknown User'}
+            {otherParticipant.username || "Unknown User"}
           </h3>
           {chat.lastMessage && (
             <p className="text-xs text-gray-500">
-              {formatDistanceToNow(new Date(chat.updatedAt), { addSuffix: true })}
+              {formatDistanceToNow(new Date(chat.updatedAt), {
+                addSuffix: true,
+              })}
             </p>
           )}
         </div>
@@ -76,8 +78,8 @@ export function ChatList() {
       try {
         await loadChats();
       } catch (err) {
-        setError(err instanceof Error ? err.message : 'Failed to load chats');
-        console.error('Error loading chats:', err);
+        setError(err instanceof Error ? err.message : "Failed to load chats");
+        console.error("Error loading chats:", err);
       }
     };
 
@@ -85,9 +87,9 @@ export function ChatList() {
   }, [loadChats]);
 
   // Add debug logging
-  console.log('Chat state:', state);
-  console.log('Chats:', state.chats);
-  console.log('Is chats an array?', Array.isArray(state.chats));
+  console.log("Chat state:", state);
+  console.log("Chats:", state.chats);
+  console.log("Is chats an array?", Array.isArray(state.chats));
 
   if (state.isLoading) {
     return (
@@ -144,4 +146,4 @@ export function ChatList() {
       )}
     </div>
   );
-} 
+}

@@ -1,7 +1,7 @@
-import { User } from '../types/user';
+import { User } from "../types/user";
 
-const TOKEN_KEY = 'chat_auth_token';
-const USER_KEY = 'chat_user';
+const TOKEN_KEY = "chat_auth_token";
+const USER_KEY = "chat_user";
 
 interface AuthData {
   token: string;
@@ -12,10 +12,10 @@ interface AuthData {
 const isValidUser = (user: any): user is User => {
   return (
     user &&
-    typeof user === 'object' &&
-    typeof user._id === 'string' &&
-    typeof user.username === 'string' &&
-    typeof user.email === 'string'
+    typeof user === "object" &&
+    typeof user._id === "string" &&
+    typeof user.username === "string" &&
+    typeof user.email === "string"
   );
 };
 
@@ -31,7 +31,7 @@ export const getStoredUser = (): User | null => {
     const user = JSON.parse(userStr);
     return isValidUser(user) ? user : null;
   } catch (error) {
-    console.error('Error parsing stored user:', error);
+    console.error("Error parsing stored user:", error);
     clearAuthData(); // Clear invalid data
     return null;
   }
@@ -39,7 +39,7 @@ export const getStoredUser = (): User | null => {
 
 export const setAuthData = (data: AuthData): void => {
   if (!data.token || !isValidUser(data.user)) {
-    console.error('Invalid auth data provided');
+    console.error("Invalid auth data provided");
     return;
   }
 
@@ -47,7 +47,7 @@ export const setAuthData = (data: AuthData): void => {
     localStorage.setItem(TOKEN_KEY, data.token);
     localStorage.setItem(USER_KEY, JSON.stringify(data.user));
   } catch (error) {
-    console.error('Error storing auth data:', error);
+    console.error("Error storing auth data:", error);
     clearAuthData(); // Clear potentially partial data
   }
 };
@@ -69,4 +69,4 @@ export const getCurrentUser = (): User | null => {
     return null;
   }
   return getStoredUser();
-}; 
+};

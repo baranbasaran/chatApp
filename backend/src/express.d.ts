@@ -1,5 +1,5 @@
-import * as express from 'express';
-import { User } from './models/User';
+import * as express from "express";
+import { User } from "./models/User";
 
 declare global {
   namespace Express {
@@ -7,4 +7,4 @@ declare global {
       user?: User;
     }
   }
-} 
+}

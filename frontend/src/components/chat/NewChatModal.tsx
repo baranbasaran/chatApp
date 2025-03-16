@@ -1,8 +1,8 @@
-import { useState, useEffect } from 'react';
-import { User } from '../../types/auth';
-import { useChat } from '../../context/ChatContext';
-import { useDebounce } from '../../hooks/useDebounce';
-import { userService } from '../../services/userService';
+import { useState, useEffect } from "react";
+import { User } from "../../types/auth";
+import { useChat } from "../../context/ChatContext";
+import { useDebounce } from "../../hooks/useDebounce";
+import { userService } from "../../services/userService";
 
 interface NewChatModalProps {
   isOpen: boolean;
@@ -15,11 +15,12 @@ interface UserWithId extends User {
 }
 
 export function NewChatModal({ isOpen, onClose }: NewChatModalProps) {
-  const [searchQuery, setSearchQuery] = useState('');
+  const [searchQuery, setSearchQuery] = useState("");
   const [users, setUsers] = useState<UserWithId[]>([]);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const debouncedSearch = useDebounce(searchQuery, 300);
+  const { setActiveChat } = useChat();
 
   useEffect(() => {
     if (!debouncedSearch) {
@@ -36,8 +37,8 @@ export function NewChatModal({ isOpen, onClose }: NewChatModalProps) {
         });
         setUsers(result.users);
       } catch (error) {
-        setError(error instanceof Error ? error.message : 'An error occurred');
-        console.error('Search error:', error);
+        setError(error instanceof Error ? error.message : "An error occurred");
+        console.error("Search error:", error);
       } finally {
         setIsLoading(false);
       }
@@ -48,30 +49,34 @@ export function NewChatModal({ isOpen, onClose }: NewChatModalProps) {
 
   const startChat = async (userId: string) => {
     try {
-      console.log('Starting chat with user:', userId); // Debug log
-      const response = await fetch('http://localhost:3000/api/chats', {
-        method: 'POST',
+      console.log("Starting chat with user:", userId); // Debug log
+      const response = await fetch("http://localhost:3000/api/chats", {
+        method: "POST",
         headers: {
-          'Content-Type': 'application/json',
-          Authorization: `Bearer ${localStorage.getItem('chat_auth_token')}`,
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${localStorage.getItem("chat_auth_token")}`,
         },
         body: JSON.stringify({
           participants: [userId],
-          isGroup: false
+          isGroup: false,
         }),
       });
 
       if (!response.ok) {
         const errorData = await response.json();
-        throw new Error(errorData.message || 'Failed to create chat');
+        throw new Error(errorData.message || "Failed to create chat");
       }
 
-      const data = await response.json();
+      const { chat } = await response.json();
+      // Set the newly created chat as active
+      setActiveChat(chat);
       onClose();
       // The chat will be added to the list via WebSocket event
     } catch (error) {
-      console.error('Error creating chat:', error);
-      setError(error instanceof Error ? error.message : 'Failed to create chat');
+      console.error("Error creating chat:", error);
+      setError(
+        error instanceof Error ? error.message : "Failed to create chat"
+      );
     }
   };
 
@@ -112,9 +117,7 @@ export function NewChatModal({ isOpen, onClose }: NewChatModalProps) {
           />
         </div>
 
-        {error && (
-          <div className="mb-4 text-sm text-red-600">{error}</div>
-        )}
+        {error && <div className="mb-4 text-sm text-red-600">{error}</div>}
 
         <div className="max-h-60 overflow-y-auto">
           {isLoading ? (
@@ -159,4 +162,4 @@ export function NewChatModal({ isOpen, onClose }: NewChatModalProps) {
       </div>
     </div>
   );
-} 
+}
