@@ -1,103 +1,195 @@
-import { useEffect, useRef, useState } from 'react';
-import { useChat } from '../../context/chat/ChatContext';
+import { useEffect, useRef, useState, useMemo, useCallback, useReducer } from 'react';
+import { useChat } from '../../context/ChatContext';
 import { Message } from '../../types/chat';
 import { format } from 'date-fns';
+import { useAuth } from '../../context/AuthContext';
+import React from 'react';
 
 interface MessageBubbleProps {
   message: Message;
   isOwnMessage: boolean;
 }
 
-function MessageBubble({ message, isOwnMessage }: MessageBubbleProps) {
+// Wrap MessageBubble with React.memo to prevent unnecessary re-renders
+const MessageBubble = React.memo(({ message, isOwnMessage }: MessageBubbleProps) => {
+  console.log(`[Debug] Rendering MessageBubble for message ${message._id}`);
+  
   if (!message) return null;
 
   return (
-    <div
-      className={`flex items-end space-x-2 mb-4 ${
-        isOwnMessage ? 'flex-row-reverse space-x-reverse' : 'flex-row'
-      }`}
-    >
-      {/* Avatar */}
-      <div className={`flex-shrink-0 ${isOwnMessage ? 'ml-2' : 'mr-2'}`}>
-        <div className={`w-8 h-8 rounded-full flex items-center justify-center ${
-          isOwnMessage ? 'bg-blue-500' : 'bg-gray-300'
-        }`}>
-          <span className={`text-sm ${isOwnMessage ? 'text-white' : 'text-gray-600'}`}>
-            {message.sender?.username?.[0]?.toUpperCase() || '?'}
-          </span>
-        </div>
-      </div>
-
-      {/* Message Content */}
-      <div
-        className={`max-w-[60%] rounded-t-lg px-4 py-2 ${
-          isOwnMessage
-            ? 'bg-blue-500 text-white rounded-bl-lg rounded-br-none'
-            : 'bg-gray-100 text-gray-900 rounded-br-lg rounded-bl-none'
-        }`}
-      >
-        {/* Show username for both own and received messages */}
-        <p className={`text-xs mb-1 ${isOwnMessage ? 'text-blue-100' : 'text-gray-500'}`}>
-          {message.sender?.username || 'Unknown User'}
-        </p>
-        
-        {/* Message text */}
-        <p className="text-sm break-words">{message.content}</p>
-
-        {/* Timestamp and status */}
-        <div
-          className={`text-xs mt-1 flex justify-end items-center ${
-            isOwnMessage ? 'text-blue-100' : 'text-gray-500'
-          }`}
-        >
-          <span>{message.timestamp && format(new Date(message.timestamp), 'HH:mm')}</span>
-          {isOwnMessage && message.status && (
-            <span className="ml-2">
-              {message.status === 'sent' && '✓'}
-              {message.status === 'delivered' && '✓✓'}
-              {message.status === 'read' && (
-                <span className="text-blue-300">✓✓</span>
-              )}
+    <div className={`flex w-full mb-4 ${isOwnMessage ? 'justify-end' : 'justify-start'}`}>
+      <div className={`flex items-end max-w-[70%] ${isOwnMessage ? 'flex-row-reverse' : 'flex-row'}`}>
+        {/* Avatar */}
+        <div className={`flex-shrink-0 ${isOwnMessage ? 'ml-2' : 'mr-2'}`}>
+          <div className={`w-8 h-8 rounded-full flex items-center justify-center ${
+            isOwnMessage ? 'bg-blue-500' : 'bg-gray-300'
+          }`}>
+            <span className={`text-sm ${isOwnMessage ? 'text-white' : 'text-gray-600'}`}>
+              {message.sender?.username?.[0]?.toUpperCase() || '?'}
             </span>
-          )}
+          </div>
+        </div>
+
+        {/* Message Content */}
+        <div className={`rounded-lg px-4 py-2 ${
+          isOwnMessage 
+            ? 'bg-blue-500 text-white rounded-br-none' 
+            : 'bg-gray-100 text-gray-900 rounded-bl-none'
+        }`}>
+          {/* Username */}
+          <p className={`text-xs mb-1 ${isOwnMessage ? 'text-blue-100' : 'text-gray-500'}`}>
+            {message.sender?.username || 'Unknown User'}
+          </p>
+          
+          {/* Message text */}
+          <p className="text-sm break-words">{message.content}</p>
+
+          {/* Timestamp and status */}
+          <div className={`text-xs mt-1 flex items-center ${
+            isOwnMessage ? 'justify-end text-blue-100' : 'justify-start text-gray-500'
+          }`}>
+            <span>{message.timestamp && format(new Date(message.timestamp), 'HH:mm')}</span>
+            {isOwnMessage && message.status && (
+              <span className="ml-2">
+                {message.status === 'sent' && '✓'}
+                {message.status === 'delivered' && '✓✓'}
+                {message.status === 'read' && (
+                  <span className="text-blue-300">✓✓</span>
+                )}
+              </span>
+            )}
+          </div>
         </div>
       </div>
     </div>
   );
+});
+
+// Add display name for debugging
+MessageBubble.displayName = 'MessageBubble';
+
+// Extract MessageList into a separate memoized component
+interface MessageListProps {
+  messages: Message[];
+  loggedInUserId: string;
+  messagesEndRef: React.RefObject<HTMLDivElement | null>;
 }
 
-export function ChatWindow() {
-  const { state, loadMessages, sendMessage } = useChat();
-  const { activeChat, messages } = state;
-  const [newMessage, setNewMessage] = useState('');
-  const [isTyping, setIsTyping] = useState(false);
-  const messagesEndRef = useRef<HTMLDivElement>(null);
-  const typingTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+const MessageList = React.memo(({ messages, loggedInUserId, messagesEndRef }: MessageListProps) => {
+  return (
+    <div className="flex-1 overflow-y-auto p-4">
+      {messages.map(message => (
+        <MessageBubble
+          key={message._id}
+          message={message}
+          isOwnMessage={message.sender._id === loggedInUserId}
+        />
+      ))}
+      <div ref={messagesEndRef} />
+    </div>
+  );
+});
 
-  // Get logged in user from localStorage
-  const loggedInUser = JSON.parse(localStorage.getItem('chat_user') || '{}');
+MessageList.displayName = 'MessageList';
 
-  useEffect(() => {
-    if (activeChat?._id) {
-      console.log('Loading messages for chat:', activeChat._id);
-      loadMessages(activeChat._id);
+// Create a debounced typing handler
+const useDebounce = (callback: () => void, delay: number) => {
+  const timeoutRef = useRef<NodeJS.Timeout | undefined>(undefined);
+
+  return useCallback(() => {
+    if (timeoutRef.current) {
+      clearTimeout(timeoutRef.current);
     }
-  }, [activeChat, loadMessages]);
+    timeoutRef.current = setTimeout(callback, delay);
+  }, [callback, delay]);
+};
 
-  useEffect(() => {
-    if (activeChat?._id) {
-      console.log('Messages state for current chat:', messages[activeChat._id]);
-    }
-  }, [messages, activeChat]);
+interface ChatHeaderProps {
+  otherParticipant: any;
+  isTyping: boolean;
+  loggedInUser: any;
+}
 
-  useEffect(() => {
-    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
-  }, [messages]);
+const ChatHeader = React.memo(({ otherParticipant, isTyping, loggedInUser }: ChatHeaderProps) => {
+  return (
+    <div className="flex items-center px-4 py-3 border-b">
+      <div className="flex items-center flex-1">
+        <div className="w-10 h-10 rounded-full bg-gray-300 flex items-center justify-center">
+          <span className="text-lg text-gray-600">
+            {otherParticipant.username?.[0]?.toUpperCase() || '?'}
+          </span>
+        </div>
+        <div className="ml-3">
+          <h3 className="text-gray-900 font-medium">
+            {otherParticipant.username || 'Unknown User'}
+          </h3>
+          {isTyping && (
+            <p className="text-xs text-gray-500">typing...</p>
+          )}
+        </div>
+      </div>
+      <div className="flex items-center">
+        <div className="mr-3 text-right">
+          <p className="text-sm text-gray-600">Logged in as</p>
+          <p className="text-gray-900 font-medium">{loggedInUser.username}</p>
+        </div>
+        <div className="w-8 h-8 rounded-full bg-blue-500 flex items-center justify-center">
+          <span className="text-sm text-white">
+            {loggedInUser.username?.[0]?.toUpperCase() || '?'}
+          </span>
+        </div>
+      </div>
+    </div>
+  );
+});
 
-  const handleTyping = () => {
-    if (!isTyping) {
-      setIsTyping(true);
-      // TODO: Notify server that user is typing
+ChatHeader.displayName = 'ChatHeader';
+
+interface MessageInputState {
+  value: string;
+  isTyping: boolean;
+  lastTypingTime: number;
+}
+
+type MessageInputAction = 
+  | { type: 'SET_VALUE'; payload: string }
+  | { type: 'SET_TYPING'; payload: boolean }
+  | { type: 'CLEAR' };
+
+function messageInputReducer(state: MessageInputState, action: MessageInputAction): MessageInputState {
+  switch (action.type) {
+    case 'SET_VALUE':
+      return { ...state, value: action.payload, lastTypingTime: Date.now() };
+    case 'SET_TYPING':
+      return { ...state, isTyping: action.payload };
+    case 'CLEAR':
+      return { ...state, value: '', isTyping: false };
+    default:
+      return state;
+  }
+}
+
+interface MessageInputProps {
+  onSend: (message: string) => Promise<void>;
+  onTyping: () => void;
+}
+
+const MessageInput = React.memo(({ onSend, onTyping }: MessageInputProps) => {
+  const [state, dispatch] = useReducer(messageInputReducer, {
+    value: '',
+    isTyping: false,
+    lastTypingTime: 0
+  });
+
+  const typingTimeoutRef = useRef<NodeJS.Timeout | undefined>(undefined);
+
+  const handleChange = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
+    const newValue = e.target.value;
+    dispatch({ type: 'SET_VALUE', payload: newValue });
+    
+    if (!state.isTyping) {
+      dispatch({ type: 'SET_TYPING', payload: true });
+      onTyping();
     }
 
     if (typingTimeoutRef.current) {
@@ -105,23 +197,86 @@ export function ChatWindow() {
     }
 
     typingTimeoutRef.current = setTimeout(() => {
-      setIsTyping(false);
-      // TODO: Notify server that user stopped typing
+      dispatch({ type: 'SET_TYPING', payload: false });
     }, 1000);
-  };
+  }, [onTyping, state.isTyping]);
 
-  const handleSubmit = async (e: React.FormEvent) => {
+  const handleSubmit = useCallback(async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!activeChat?._id || !newMessage.trim()) return;
-
+    if (!state.value.trim()) return;
+    
     try {
-      await sendMessage(activeChat._id, newMessage.trim());
-      setNewMessage('');
+      await onSend(state.value.trim());
+      dispatch({ type: 'CLEAR' });
     } catch (error) {
       console.error('Failed to send message:', error);
     }
-  };
+  }, [onSend, state.value]);
 
+  return (
+    <form onSubmit={handleSubmit} className="p-4 border-t">
+      <div className="flex space-x-4">
+        <input
+          type="text"
+          value={state.value}
+          onChange={handleChange}
+          placeholder="Type a message..."
+          className="flex-1 rounded-full border-gray-300 focus:border-blue-500 focus:ring-1 focus:ring-blue-500"
+        />
+        <button
+          type="submit"
+          disabled={!state.value.trim()}
+          className="px-6 py-2 bg-blue-500 text-white rounded-full hover:bg-blue-600 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 disabled:opacity-50"
+        >
+          Send
+        </button>
+      </div>
+    </form>
+  );
+});
+
+MessageInput.displayName = 'MessageInput';
+
+const ChatWindowContent = React.memo(() => {
+  const { state: authState } = useAuth();
+  const { state: chatState, loadMessages, sendMessage } = useChat();
+  const { activeChat, messages } = chatState;
+  const [isTyping, setIsTyping] = useState(false);
+  const messagesEndRef = useRef<HTMLDivElement>(null);
+  const loggedInUser = authState.user;
+
+  const chatMessages = useMemo(() => {
+    if (!activeChat?._id) return [];
+    return messages[activeChat._id] || [];
+  }, [activeChat?._id, messages[activeChat?._id ?? '']]);
+
+  const otherParticipant = useMemo(() => {
+    if (!activeChat?.participants || !loggedInUser) return null;
+    return activeChat.participants.find(
+      participant => participant._id !== loggedInUser._id
+    );
+  }, [activeChat?.participants, loggedInUser?._id]);
+
+  useEffect(() => {
+    if (activeChat?._id) {
+      loadMessages(activeChat._id);
+    }
+  }, [activeChat?._id, loadMessages]);
+
+  useEffect(() => {
+    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+  }, [chatMessages]);
+
+  const handleTyping = useCallback(() => {
+    setIsTyping(true);
+  }, []);
+
+  const handleSendMessage = useCallback(async (message: string) => {
+    if (!activeChat?._id) return;
+    await sendMessage(activeChat._id, message);
+  }, [activeChat?._id, sendMessage]);
+
+  if (!loggedInUser) return null;
   if (!activeChat) {
     return (
       <div className="h-full flex items-center justify-center bg-gray-50">
@@ -129,17 +284,6 @@ export function ChatWindow() {
       </div>
     );
   }
-
-  // Ensure we have an array of messages
-  const chatMessages = Array.isArray(messages[activeChat._id]) 
-    ? messages[activeChat._id] 
-    : [];
-
-  // Get the other participant (the one who's not the logged-in user)
-  const otherParticipant = activeChat.participants?.find(
-    participant => participant._id !== loggedInUser._id
-  );
-
   if (!otherParticipant) {
     return (
       <div className="h-full flex items-center justify-center bg-gray-50">
@@ -150,123 +294,26 @@ export function ChatWindow() {
 
   return (
     <div className="h-full flex flex-col bg-white">
-      {/* Chat Header */}
-      <div className="flex items-center px-4 py-3 border-b">
-        <div className="flex items-center flex-1">
-          <div className="w-10 h-10 rounded-full bg-gray-300 flex items-center justify-center">
-            <span className="text-lg text-gray-600">
-              {otherParticipant.username?.[0]?.toUpperCase() || '?'}
-            </span>
-          </div>
-          <div className="ml-3">
-            <h3 className="text-gray-900 font-medium">
-              {otherParticipant.username || 'Unknown User'}
-            </h3>
-            {activeChat.isTyping && (
-              <p className="text-xs text-gray-500">typing...</p>
-            )}
-          </div>
-        </div>
-        {/* Current User Info */}
-        <div className="flex items-center">
-          <div className="mr-3 text-right">
-            <p className="text-sm text-gray-600">Logged in as</p>
-            <p className="text-gray-900 font-medium">{loggedInUser.username}</p>
-          </div>
-          <div className="w-8 h-8 rounded-full bg-blue-500 flex items-center justify-center">
-            <span className="text-sm text-white">
-              {loggedInUser.username?.[0]?.toUpperCase() || '?'}
-            </span>
-          </div>
-        </div>
-      </div>
-
-      {/* Messages */}
-      <div className="flex-1 overflow-y-auto p-4">
-        {chatMessages.map(message => {
-          // Determine if the message is from the logged-in user
-          const isCurrentUserMessage = message.sender._id === loggedInUser._id;
-          
-          return (
-            <div
-              key={message._id}
-              className={`flex w-full mb-4 ${
-                isCurrentUserMessage ? 'justify-end' : 'justify-start'
-              }`}
-            >
-              <div className={`flex items-end max-w-[70%] ${
-                isCurrentUserMessage ? 'flex-row-reverse' : 'flex-row'
-              }`}>
-                {/* Avatar */}
-                <div className={`flex-shrink-0 ${
-                  isCurrentUserMessage ? 'ml-2' : 'mr-2'
-                }`}>
-                  <div className={`w-8 h-8 rounded-full flex items-center justify-center ${
-                    isCurrentUserMessage ? 'bg-blue-500' : 'bg-gray-300'
-                  }`}>
-                    <span className={`text-sm ${
-                      isCurrentUserMessage ? 'text-white' : 'text-gray-600'
-                    }`}>
-                      {message.sender?.username?.[0]?.toUpperCase() || '?'}
-                    </span>
-                  </div>
-                </div>
-
-                {/* Message Content */}
-                <div className={`rounded-lg px-4 py-2 ${
-                  isCurrentUserMessage
-                    ? 'bg-blue-500 text-white rounded-br-none'
-                    : 'bg-gray-100 text-gray-900 rounded-bl-none'
-                }`}>
-                  <p className="text-sm break-words">{message.content}</p>
-                  <div className={`text-xs mt-1 flex ${
-                    isCurrentUserMessage ? 'justify-end' : 'justify-start'
-                  }`}>
-                    <span className={
-                      isCurrentUserMessage ? 'text-blue-100' : 'text-gray-500'
-                    }>
-                      {message.timestamp && format(new Date(message.timestamp), 'HH:mm')}
-                    </span>
-                    {isCurrentUserMessage && message.status && (
-                      <span className="ml-2 text-blue-100">
-                        {message.status === 'sent' && '✓'}
-                        {message.status === 'delivered' && '✓✓'}
-                        {message.status === 'read' && (
-                          <span className="text-blue-300">✓✓</span>
-                        )}
-                      </span>
-                    )}
-                  </div>
-                </div>
-              </div>
-            </div>
-          );
-        })}
-        <div ref={messagesEndRef} />
-      </div>
-
-      {/* Message Input */}
-      <form onSubmit={handleSubmit} className="p-4 border-t">
-        <div className="flex space-x-4">
-          <input
-            type="text"
-            value={newMessage}
-            onChange={(e) => {
-              setNewMessage(e.target.value);
-              handleTyping();
-            }}
-            placeholder="Type a message..."
-            className="flex-1 rounded-full border-gray-300 focus:border-blue-500 focus:ring-1 focus:ring-blue-500"
-          />
-          <button
-            type="submit"
-            disabled={!newMessage.trim()}
-            className="px-6 py-2 bg-blue-500 text-white rounded-full hover:bg-blue-600 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 disabled:opacity-50"
-          >
-            Send
-          </button>
-        </div>
-      </form>
+      <ChatHeader 
+        otherParticipant={otherParticipant}
+        isTyping={isTyping}
+        loggedInUser={loggedInUser}
+      />
+      <MessageList 
+        messages={chatMessages}
+        loggedInUserId={loggedInUser._id}
+        messagesEndRef={messagesEndRef}
+      />
+      <MessageInput 
+        onSend={handleSendMessage}
+        onTyping={handleTyping}
+      />
     </div>
   );
+});
+
+ChatWindowContent.displayName = 'ChatWindowContent';
+
+export function ChatWindow() {
+  return <ChatWindowContent />;
 } 

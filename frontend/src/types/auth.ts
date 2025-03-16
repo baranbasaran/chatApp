@@ -4,6 +4,7 @@ export interface User {
   username: string;
   firstName?: string;
   lastName?: string;
+  status: 'online' | 'offline' | 'away';
 }
 
 export interface AuthState {

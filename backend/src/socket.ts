@@ -48,7 +48,12 @@ export const socketHandler = (io: Server) => {
 
     // Handle new messages
     socket.on('newMessage', (data: { chatId: string; message: any }) => {
-      socket.to(data.chatId).emit('messageReceived', data.message);
+      console.log('New message received:', data);
+      // Emit to all users in the chat room except the sender
+      socket.to(data.chatId).emit('messageReceived', {
+        chatId: data.chatId,
+        message: data.message
+      });
     });
 
     // Handle disconnection

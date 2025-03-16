@@ -1,6 +1,6 @@
 import { BrowserRouter as Router, Routes, Route, Navigate } from 'react-router-dom';
-import { AuthProvider } from './contexts/AuthContext';
-import { ChatProvider } from './context/chat/ChatContext';
+import { AuthProvider } from './context/AuthContext';
+import { ChatProvider } from './context/ChatContext';
 import { LoginPage } from './pages/auth/LoginPage';
 import { RegisterPage } from './pages/auth/RegisterPage';
 import { ChatPage } from './pages/chat/ChatPage';

@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { useChat } from '../../context/chat/ChatContext';
+import { useChat } from '../../context/ChatContext';
 import { Chat } from '../../types/chat';
 import { formatDistanceToNow } from 'date-fns';
 import { NewChatModal } from './NewChatModal';

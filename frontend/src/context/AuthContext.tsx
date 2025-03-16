@@ -1,9 +1,10 @@
 import { createContext, useContext, useReducer, useCallback, ReactNode, useEffect } from 'react';
 import { AuthState, User, LoginCredentials, RegisterCredentials, AuthResponse } from '../types/auth';
+import { getStoredToken, getStoredUser, setAuthData, clearAuthData } from '../utils/auth';
 
 // Initial state
 const initialState: AuthState = {
-  user: null,
+  user: getStoredUser(),
   isAuthenticated: false,
   isLoading: true,
   error: null,
@@ -12,7 +13,7 @@ const initialState: AuthState = {
 // Action types
 type AuthAction =
   | { type: 'AUTH_START' }
-  | { type: 'AUTH_SUCCESS'; payload: User }
+  | { type: 'AUTH_SUCCESS'; payload: { user: User; token: string } }
   | { type: 'AUTH_FAILURE'; payload: string }
   | { type: 'AUTH_LOGOUT' };
 
@@ -30,7 +31,7 @@ function authReducer(state: AuthState, action: AuthAction): AuthState {
         ...state,
         isLoading: false,
         isAuthenticated: true,
-        user: action.payload,
+        user: action.payload.user,
         error: null,
       };
     case 'AUTH_FAILURE':
@@ -68,9 +69,12 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   // Add initialization effect
   useEffect(() => {
     const initializeAuth = async () => {
-      const token = localStorage.getItem('chat_auth_token');
-      if (!token) {
-        dispatch({ type: 'AUTH_FAILURE', payload: 'No token found' });
+      const token = getStoredToken();
+      const user = getStoredUser();
+
+      if (!token || !user) {
+        dispatch({ type: 'AUTH_FAILURE', payload: 'No valid session found' });
+        clearAuthData();
         return;
       }
 
@@ -85,11 +89,12 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           throw new Error('Token validation failed');
         }
 
-        const { user } = await response.json();
-        dispatch({ type: 'AUTH_SUCCESS', payload: user });
+        const { user: freshUser } = await response.json();
+        setAuthData({ token, user: freshUser });
+        dispatch({ type: 'AUTH_SUCCESS', payload: { token, user: freshUser } });
       } catch (error) {
         console.error('Auth initialization error:', error);
-        localStorage.removeItem('chat_auth_token');
+        clearAuthData();
         dispatch({ type: 'AUTH_FAILURE', payload: 'Session expired' });
       }
     };
@@ -115,9 +120,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       }
 
       const data: AuthResponse = await response.json();
-      localStorage.setItem('chat_auth_token', data.token);
-      dispatch({ type: 'AUTH_SUCCESS', payload: data.user });
+      setAuthData({ token: data.token, user: data.user });
+      dispatch({ type: 'AUTH_SUCCESS', payload: { token: data.token, user: data.user } });
     } catch (error) {
+      clearAuthData();
       dispatch({ type: 'AUTH_FAILURE', payload: error instanceof Error ? error.message : 'Login failed' });
       throw error;
     }
@@ -140,16 +146,17 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       }
 
       const data: AuthResponse = await response.json();
-      localStorage.setItem('chat_auth_token', data.token);
-      dispatch({ type: 'AUTH_SUCCESS', payload: data.user });
+      setAuthData({ token: data.token, user: data.user });
+      dispatch({ type: 'AUTH_SUCCESS', payload: { token: data.token, user: data.user } });
     } catch (error) {
+      clearAuthData();
       dispatch({ type: 'AUTH_FAILURE', payload: error instanceof Error ? error.message : 'Registration failed' });
       throw error;
     }
   }, []);
 
   const logout = useCallback(() => {
-    localStorage.removeItem('chat_auth_token');
+    clearAuthData();
     dispatch({ type: 'AUTH_LOGOUT' });
   }, []);
 

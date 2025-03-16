@@ -1,12 +1,13 @@
 import React from 'react';
 import { Navigate } from 'react-router-dom';
-import { useAuth } from '../../contexts/AuthContext';
+import { useAuth } from '../../context/AuthContext';
 import { LogoutButton } from '../../components/LogoutButton';
 import { ChatList } from '../../components/chat/ChatList';
 import { ChatWindow } from '../../components/chat/ChatWindow';
 
 export const ChatPage: React.FC = () => {
-  const { isAuthenticated, isLoading } = useAuth();
+  const { state } = useAuth();
+  const { isAuthenticated, isLoading } = state;
 
   if (isLoading) {
     return (

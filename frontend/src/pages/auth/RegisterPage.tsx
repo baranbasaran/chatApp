@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
-import { Link } from 'react-router-dom';
-import { useAuth } from '../../contexts/AuthContext';
+import { Link, useNavigate, useLocation } from 'react-router-dom';
+import { useAuth } from '../../context/AuthContext';
 import { api } from '../../utils/api';
 
 export const RegisterPage: React.FC = () => {
@@ -10,6 +10,8 @@ export const RegisterPage: React.FC = () => {
   const [error, setError] = useState('');
   const [isLoading, setIsLoading] = useState(false);
   const { login } = useAuth();
+  const navigate = useNavigate();
+  const location = useLocation();
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -21,7 +23,7 @@ export const RegisterPage: React.FC = () => {
       await api.post('/auth/register', { username, email, password }, { requiresAuth: false });
       
       // If registration is successful, log them in
-      await login(email, password);
+      await handleLogin(email, password);
     } catch (err: any) {
       if (err.status === 400) {
         setError('Username or email already taken');
@@ -31,6 +33,18 @@ export const RegisterPage: React.FC = () => {
       console.error('Registration error:', err);
     } finally {
       setIsLoading(false);
+    }
+  };
+
+  const handleLogin = async (email: string, password: string) => {
+    try {
+      await login({ email, password });
+      // Get the redirect path from location state or default to '/'
+      const from = (location.state as any)?.from?.pathname || '/';
+      navigate(from, { replace: true });
+    } catch (error) {
+      setError('Error logging in after registration');
+      console.error('Login error:', error);
     }
   };
 

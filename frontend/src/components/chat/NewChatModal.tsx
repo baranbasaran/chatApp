@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { User } from '../../types/auth';
-import { useChat } from '../../context/chat/ChatContext';
+import { useChat } from '../../context/ChatContext';
 import { useDebounce } from '../../hooks/useDebounce';
 import { userService } from '../../services/userService';
 
