@@ -1,10 +1,21 @@
-import { createContext, useContext, useReducer, useCallback, ReactNode, useEffect, useRef } from 'react';
-import { ChatState, ChatAction, Chat, Message } from '../types/chat';
-import { WebSocketService } from '../services/chat/websocket';
-import { getStoredToken } from '../utils/auth';
+import {
+  createContext,
+  useContext,
+  useReducer,
+  useCallback,
+  ReactNode,
+  useEffect,
+  useRef,
+  useMemo,
+} from "react";
+import { ChatState, ChatAction, Chat } from "../types/chat";
+import { SocketIOChatService } from "../services/chat/chatWebSocketService";
+import { getStoredToken } from "../utils/auth";
+import { logger } from "../utils/logger";
+import { useAuth } from "./AuthContext";
 
 // Initialize WebSocket service
-const wsService = new WebSocketService();
+const wsService = SocketIOChatService.getInstance();
 
 const initialState: ChatState = {
   activeChat: null,
@@ -12,40 +23,89 @@ const initialState: ChatState = {
   messages: {},
   isLoading: false,
   error: null,
+  typingStatus: {},
 };
 
 function chatReducer(state: ChatState, action: ChatAction): ChatState {
-  console.log('Reducer called with action:', action);
-  console.log('Current state:', state);
-  
+  logger.debug("ChatReducer", "Action received", {
+    type: action.type,
+    payload: "payload" in action ? action.payload : undefined,
+  });
+
   switch (action.type) {
-    case 'SET_ACTIVE_CHAT':
+    case "SET_ACTIVE_CHAT":
       return {
         ...state,
         activeChat: action.payload,
       };
-    case 'SET_CHATS':
+    case "SET_CHATS":
       return {
         ...state,
         chats: action.payload,
       };
-    case 'ADD_CHAT':
+    case "ADD_CHAT":
       return {
         ...state,
         chats: [action.payload, ...state.chats],
       };
-    case 'UPDATE_CHAT':
+    case "UPDATE_CHAT_WITH_MESSAGE": {
+      const { chat, message } = action.payload;
+      const otherChats = state.chats.filter((c) => c._id !== chat._id);
+      const updatedChat = { ...chat, lastMessage: message };
+
+      // Check if message already exists in the messages array
+      const existingMessages = state.messages[chat._id] || [];
+      const messageExists = existingMessages.some((m) => m._id === message._id);
+
+      if (messageExists) {
+        logger.debug("ChatContext", "Message already exists, skipping update");
+        return state;
+      }
+
+      // Update chat list to show latest message first
+      const updatedChats = [updatedChat, ...otherChats];
+
       return {
         ...state,
-        chats: state.chats.map(chat =>
-          chat._id === action.payload._id ? action.payload : chat
-        ),
+        chats: updatedChats,
+        activeChat:
+          state.activeChat?._id === chat._id ? updatedChat : state.activeChat,
+        messages: {
+          ...state.messages,
+          [chat._id]: [...existingMessages, message],
+        },
+      };
+    }
+    case "UPDATE_CHAT":
+      logger.debug("ChatContext", "Updating chat", {
+        chatToUpdate: action.payload,
+        existingChat: state.chats.find((c) => c._id === action.payload._id),
+      });
+
+      const updatedChat = {
+        ...action.payload,
+        lastMessage:
+          action.payload.lastMessage ||
+          state.chats.find((c) => c._id === action.payload._id)?.lastMessage,
+      };
+
+      // Move the updated chat to the top of the list if it has a new message
+      const otherChats = state.chats.filter(
+        (c) => c._id !== action.payload._id
+      );
+      const updatedChats = action.payload.lastMessage
+        ? [updatedChat, ...otherChats]
+        : [updatedChat, ...otherChats];
+
+      return {
+        ...state,
+        chats: updatedChats,
         activeChat:
           state.activeChat?._id === action.payload._id
-            ? action.payload
+            ? updatedChat
             : state.activeChat,
       };
-    case 'SET_MESSAGES':
+    case "SET_MESSAGES":
       return {
         ...state,
         messages: {
@@ -53,7 +113,7 @@ function chatReducer(state: ChatState, action: ChatAction): ChatState {
           [action.payload.chatId]: action.payload.messages,
         },
       };
-    case 'ADD_MESSAGE':
+    case "ADD_MESSAGE":
       const updatedMessages = {
         ...state.messages,
         [action.payload.chatId]: [
@@ -61,44 +121,43 @@ function chatReducer(state: ChatState, action: ChatAction): ChatState {
           action.payload.message,
         ],
       };
-      console.log('Updated messages state:', updatedMessages);
+      logger.debug("ChatContext", "Updated messages state", updatedMessages);
       return {
         ...state,
         messages: updatedMessages,
       };
-    case 'UPDATE_MESSAGE':
+    case "UPDATE_MESSAGE":
       return {
         ...state,
         messages: {
           ...state.messages,
           [action.payload.chatId]: state.messages[action.payload.chatId].map(
-            message =>
+            (message) =>
               message._id === action.payload.message._id
                 ? action.payload.message
                 : message
           ),
         },
       };
-    case 'SET_TYPING':
+    case "SET_TYPING":
       return {
         ...state,
-        chats: state.chats.map(chat =>
-          chat._id === action.payload.chatId
-            ? { ...chat, isTyping: action.payload.isTyping }
-            : chat
-        ),
+        typingStatus: {
+          ...state.typingStatus,
+          [action.payload.chatId]: action.payload.isTyping,
+        },
       };
-    case 'SET_ERROR':
+    case "SET_ERROR":
       return {
         ...state,
         error: action.payload,
       };
-    case 'CLEAR_ERROR':
+    case "CLEAR_ERROR":
       return {
         ...state,
         error: null,
       };
-    case 'SET_LOADING':
+    case "SET_LOADING":
       return {
         ...state,
         isLoading: action.payload,
@@ -114,6 +173,7 @@ interface ChatContextType {
   sendMessage: (chatId: string, content: string) => Promise<void>;
   loadMessages: (chatId: string) => Promise<void>;
   loadChats: () => Promise<void>;
+  sendTypingStatus: (chatId: string, isTyping: boolean) => void;
 }
 
 const ChatContext = createContext<ChatContextType | null>(null);
@@ -121,221 +181,436 @@ const ChatContext = createContext<ChatContextType | null>(null);
 export function ChatProvider({ children }: { children: ReactNode }) {
   const [state, dispatch] = useReducer(chatReducer, initialState);
   const prevStateRef = useRef(state);
+  const currentStateRef = useRef(state);
+  const typingTimeoutsRef = useRef<{ [key: string]: NodeJS.Timeout }>({});
+  const { state: authState } = useAuth();
+  const reconnectTimeoutRef = useRef<NodeJS.Timeout | undefined>(undefined);
+  const reconnectAttemptsRef = useRef(0);
+  const MAX_RECONNECT_ATTEMPTS = 5;
+
+  // Keep currentStateRef up to date
+  useEffect(() => {
+    currentStateRef.current = state;
+  }, [state]);
 
   // Debug state changes
   useEffect(() => {
-    const stateKeys = ['activeChat', 'chats', 'messages', 'isLoading', 'error'] as const;
-    const changes = stateKeys.filter(key => state[key] !== prevStateRef.current[key]);
-    
+    const stateKeys = [
+      "activeChat",
+      "chats",
+      "messages",
+      "isLoading",
+      "error",
+    ] as const;
+    const changes = stateKeys.filter(
+      (key) => state[key] !== prevStateRef.current[key]
+    );
+
     if (changes.length > 0) {
-      console.log('[ChatContext] State changed:', changes);
-      console.log('[ChatContext] Previous state:', prevStateRef.current);
-      console.log('[ChatContext] New state:', state);
+      logger.debug("ChatContext", "State changed", {
+        changes,
+        prevState: prevStateRef.current,
+        newState: state,
+      });
     }
     prevStateRef.current = state;
   }, [state]);
 
-  // Initialize WebSocket connection and join user room
-  useEffect(() => {
-    console.log('[ChatContext] WebSocket effect running');
-    
-    const token = getStoredToken();
-    const user = JSON.parse(localStorage.getItem('chat_user') || '{}');
-    
-    if (token && user._id) {
-      console.log('[ChatContext] Initializing WebSocket connection');
-      const socket = wsService.connect(token);
-
-      // Join user's room
-      wsService.send('join', user._id);
-      console.log('[ChatContext] Joining user room:', user._id);
-
-      // Set up WebSocket event listeners
-      wsService.on('messageReceived', (payload) => {
-        console.log('[ChatContext] Received new message via WebSocket:', payload);
-        const { chatId, message } = payload;
-        
-        // Add message if we have the chat loaded OR if it's the active chat
-        if (state.messages[chatId] !== undefined || state.activeChat?._id === chatId) {
-          console.log('[ChatContext] Adding message to state for chat:', chatId);
-          dispatch({
-            type: 'ADD_MESSAGE',
-            payload: { chatId, message },
-          });
-
-          // Update chat's last message
-          const chat = state.chats.find(c => c._id === chatId);
-          if (chat) {
-            console.log('[ChatContext] Updating chat with new last message');
-            dispatch({
-              type: 'UPDATE_CHAT',
-              payload: {
-                ...chat,
-                lastMessage: message
-              }
-            });
-          }
-        } else {
-          console.log('[ChatContext] Loading messages for chat:', chatId);
-          // Load messages for this chat since we don't have them
-          loadMessages(chatId);
-        }
-      });
-
-      return () => {
-        console.log('[ChatContext] Cleanup: Disconnecting WebSocket');
-        wsService.disconnect();
-      };
-    }
-  }, []); // Empty dependency array to run only once
-
-  // Join chat room when active chat changes
-  useEffect(() => {
-    if (state.activeChat?._id) {
-      console.log('[ChatContext] Joining chat room:', state.activeChat._id);
-      wsService.send('joinChat', state.activeChat._id);
-      
-      // Only load messages if they haven't been loaded yet
-      if (!state.messages[state.activeChat._id]?.length) {
-        console.log('[ChatContext] Loading messages for newly active chat');
-        loadMessages(state.activeChat._id);
-      } else {
-        console.log('[ChatContext] Messages already loaded for chat:', state.activeChat._id);
-      }
-    }
-  }, [state.activeChat?._id]);
-
-  const setActiveChat = useCallback((chat: Chat) => {
-    dispatch({ type: 'SET_ACTIVE_CHAT', payload: chat });
-  }, []);
-
   const loadChats = useCallback(async () => {
     try {
-      dispatch({ type: 'SET_LOADING', payload: true });
-      
-      const token = localStorage.getItem('chat_auth_token');
+      dispatch({ type: "SET_LOADING", payload: true });
+
+      const token = localStorage.getItem("chat_auth_token");
       if (!token) {
-        throw new Error('No authentication token found');
+        throw new Error("No authentication token found");
       }
-      
-      const response = await fetch('http://localhost:3000/api/chats', {
-        headers: {
-          Authorization: `Bearer ${token}`,
-          'Cache-Control': 'no-cache',
-          'Pragma': 'no-cache'
-        },
-      });
 
-      if (!response.ok) {
-        if (response.status === 401) {
-          throw new Error('Authentication failed. Please log in again.');
+      const fetchChats = async (retryCount = 0, maxRetries = 3) => {
+        try {
+          const response = await fetch("http://localhost:3000/api/chats", {
+            headers: {
+              Authorization: `Bearer ${token}`,
+              "Cache-Control": "no-cache",
+              Pragma: "no-cache",
+            },
+          });
+
+          if (!response.ok) {
+            if (response.status === 401) {
+              throw new Error("Authentication failed. Please log in again.");
+            }
+            throw new Error("Failed to load chats");
+          }
+
+          const data = await response.json();
+          logger.debug("ChatContext", "Received chats", data);
+
+          const chats = data.chats || [];
+          logger.debug("ChatContext", "Processed chats", chats);
+
+          dispatch({ type: "SET_CHATS", payload: chats });
+        } catch (error) {
+          logger.error("ChatContext", "Error loading chats", error);
+          if (retryCount < maxRetries) {
+            logger.info(
+              "ChatContext",
+              `Retrying chat load (${retryCount + 1}/${maxRetries})`
+            );
+            await new Promise((resolve) =>
+              setTimeout(resolve, 1000 * Math.pow(2, retryCount))
+            );
+            return fetchChats(retryCount + 1, maxRetries);
+          }
+          throw error;
         }
-        throw new Error('Failed to load chats');
-      }
+      };
 
-      const data = await response.json();
-      console.log('Received chats:', data); // Debug log
-      
-      // Extract chats array from response
-      const chats = data.chats || [];
-      console.log('Processed chats:', chats); // Debug log
-      
-      dispatch({ type: 'SET_CHATS', payload: chats });
+      await fetchChats();
     } catch (error) {
-      console.error('Error loading chats:', error);
+      logger.error("ChatContext", "Error loading chats", error);
       dispatch({
-        type: 'SET_ERROR',
-        payload: error instanceof Error ? error.message : 'Failed to load chats',
+        type: "SET_ERROR",
+        payload:
+          error instanceof Error ? error.message : "Failed to load chats",
       });
-      // Initialize with empty array on error
-      dispatch({ type: 'SET_CHATS', payload: [] });
+      dispatch({ type: "SET_CHATS", payload: [] });
     } finally {
-      dispatch({ type: 'SET_LOADING', payload: false });
+      dispatch({ type: "SET_LOADING", payload: false });
     }
   }, []);
 
-  const loadMessages = useCallback(async (chatId: string) => {
-    // Prevent duplicate loading
-    if (state.messages[chatId]?.length) {
-      console.log('[ChatContext] Skipping message load - already loaded');
+  // Initialize WebSocket connection and handlers
+  useEffect(() => {
+    if (!authState.isAuthenticated) {
+      logger.info("ChatContext", "Not authenticated, skipping WebSocket setup");
       return;
     }
 
+    logger.info("ChatContext", "Setting up WebSocket event handlers");
+    let isSubscribed = true;
+
+    const setupWebSocket = async () => {
+      try {
+        await wsService.connect();
+        reconnectAttemptsRef.current = 0; // Reset attempts on successful connection
+
+        if (!isSubscribed) return;
+
+        wsService.onMessage((message, chatId) => {
+          if (!isSubscribed) return;
+
+          const currentState = currentStateRef.current;
+
+          logger.debug("ChatContext", "Received message via WebSocket", {
+            chatId,
+            messageId: message._id,
+            state: {
+              chatsCount: currentState.chats.length,
+              activeChatId: currentState.activeChat?._id,
+              messageCount: currentState.messages[chatId]?.length || 0,
+            },
+          });
+
+          const existingChat = currentState.chats.find((c) => {
+            const matches = c._id === chatId;
+            logger.debug("ChatContext", "Comparing chat IDs", {
+              chatId,
+              currentChatId: c._id,
+              matches,
+              chatDetails: c,
+            });
+            return matches;
+          });
+
+          const currentUserId = JSON.parse(
+            localStorage.getItem("chat_user") || "{}"
+          )._id;
+
+          if (message.sender?._id === currentUserId) {
+            logger.debug("ChatContext", "Skipping own message");
+            return;
+          }
+
+          const existingMessages = currentState.messages[chatId] || [];
+          const messageExists = existingMessages.some(
+            (m) => m._id === message._id
+          );
+
+          if (messageExists) {
+            logger.debug("ChatContext", "Message already exists, skipping", {
+              messageId: message._id,
+            });
+            return;
+          }
+
+          if (!existingChat) {
+            logger.warn(
+              "ChatContext",
+              "Chat not found in state, attempting to load chats",
+              {
+                chatId,
+                availableChats: currentState.chats.map((c) => ({
+                  id: c._id,
+                  name: c.name,
+                  participants: c.participants,
+                })),
+              }
+            );
+            loadChats();
+            return;
+          }
+
+          logger.debug("ChatContext", "Processing new message", {
+            chatId,
+            messageId: message._id,
+            existingChat: {
+              id: existingChat._id,
+              name: existingChat.name,
+              participants: existingChat.participants,
+            },
+          });
+
+          dispatch({
+            type: "ADD_MESSAGE",
+            payload: { chatId, message },
+          });
+
+          dispatch({
+            type: "UPDATE_CHAT",
+            payload: { ...existingChat, lastMessage: message },
+          });
+        });
+
+        // Handle typing status updates with debounce
+        wsService.onTyping((chatId, isTyping, userId) => {
+          if (!isSubscribed) return;
+
+          const currentUserId = JSON.parse(
+            localStorage.getItem("chat_user") || "{}"
+          )._id;
+          if (userId === currentUserId) {
+            return;
+          }
+
+          // Clear existing timeout for this chat
+          if (typingTimeoutsRef.current[chatId]) {
+            clearTimeout(typingTimeoutsRef.current[chatId]);
+          }
+
+          dispatch({
+            type: "SET_TYPING",
+            payload: { chatId, isTyping },
+          });
+
+          if (isTyping) {
+            typingTimeoutsRef.current[chatId] = setTimeout(() => {
+              if (isSubscribed) {
+                dispatch({
+                  type: "SET_TYPING",
+                  payload: { chatId, isTyping: false },
+                });
+              }
+              delete typingTimeoutsRef.current[chatId];
+            }, 3000);
+          }
+        });
+
+        // Handle new chat creation
+        wsService.onNewChat((chat) => {
+          if (!isSubscribed) return;
+          dispatch({
+            type: "ADD_CHAT",
+            payload: chat,
+          });
+        });
+
+        // Load initial chats
+        await loadChats();
+      } catch (error) {
+        logger.error("ChatContext", "Error setting up WebSocket", error);
+
+        // Attempt to reconnect with exponential backoff
+        if (
+          isSubscribed &&
+          reconnectAttemptsRef.current < MAX_RECONNECT_ATTEMPTS
+        ) {
+          const delay = Math.min(
+            1000 * Math.pow(2, reconnectAttemptsRef.current),
+            30000
+          );
+          logger.info("ChatContext", `Attempting reconnect in ${delay}ms`, {
+            attempt: reconnectAttemptsRef.current + 1,
+            maxAttempts: MAX_RECONNECT_ATTEMPTS,
+          });
+
+          reconnectTimeoutRef.current = setTimeout(() => {
+            reconnectAttemptsRef.current++;
+            setupWebSocket();
+          }, delay);
+        } else if (reconnectAttemptsRef.current >= MAX_RECONNECT_ATTEMPTS) {
+          logger.error("ChatContext", "Max reconnection attempts reached");
+          dispatch({
+            type: "SET_ERROR",
+            payload:
+              "Unable to establish WebSocket connection. Please refresh the page.",
+          });
+        }
+      }
+    };
+
+    setupWebSocket();
+
+    // Cleanup function
+    return () => {
+      isSubscribed = false;
+      if (reconnectTimeoutRef.current) {
+        clearTimeout(reconnectTimeoutRef.current);
+      }
+      Object.values(typingTimeoutsRef.current).forEach(clearTimeout);
+      typingTimeoutsRef.current = {};
+      wsService.disconnect();
+    };
+  }, [authState.isAuthenticated, loadChats]);
+
+  // Join chat room and load messages when active chat changes
+  useEffect(() => {
+    if (state.activeChat) {
+      logger.info("ChatContext", "Joining chat room", state.activeChat._id);
+      wsService.joinChat(state.activeChat._id);
+      logger.info("ChatContext", "Loading messages for active chat");
+      loadMessages(state.activeChat._id);
+    }
+  }, [state.activeChat?._id]);
+
+  const loadMessages = useCallback(async (chatId: string) => {
     try {
-      const response = await fetch(`http://localhost:3000/api/chats/${chatId}/messages`, {
-        headers: {
-          Authorization: `Bearer ${localStorage.getItem('chat_auth_token')}`,
-        },
-      });
+      dispatch({ type: "SET_LOADING", payload: true });
+      const response = await fetch(
+        `http://localhost:3000/api/chats/${chatId}/messages`,
+        {
+          headers: {
+            Authorization: `Bearer ${getStoredToken()}`,
+            "Cache-Control": "no-cache",
+            Pragma: "no-cache",
+          },
+        }
+      );
 
       if (!response.ok) {
-        throw new Error('Failed to load messages');
+        throw new Error("Failed to fetch messages");
       }
 
       const data = await response.json();
-      console.log('Received messages:', data);
-      
-      // Extract messages array from response
-      const messages = data.messages || [];
-      console.log('Processed messages:', messages);
-      
+      logger.debug("ChatContext", "Received messages data", data);
+
+      const messages = Array.isArray(data) ? data : data.messages || [];
+      logger.debug("ChatContext", "Processed messages array", messages);
+
       dispatch({
-        type: 'SET_MESSAGES',
+        type: "SET_MESSAGES",
         payload: { chatId, messages },
       });
     } catch (error) {
-      console.error('Error loading messages:', error);
+      logger.error("ChatContext", "Error loading messages", error);
       dispatch({
-        type: 'SET_ERROR',
-        payload: error instanceof Error ? error.message : 'Failed to load messages',
+        type: "SET_MESSAGES",
+        payload: { chatId, messages: [] },
       });
+      dispatch({
+        type: "SET_ERROR",
+        payload:
+          error instanceof Error ? error.message : "Failed to load messages",
+      });
+    } finally {
+      dispatch({ type: "SET_LOADING", payload: false });
     }
-  }, [state.messages]); // Add state.messages as dependency to access latest state
+  }, []);
 
-  const sendMessage = useCallback(async (chatId: string, content: string) => {
-    try {
-      const response = await fetch(`http://localhost:3000/api/chats/${chatId}/messages`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          Authorization: `Bearer ${getStoredToken()}`,
-        },
-        body: JSON.stringify({ content }),
-      });
+  const setActiveChat = useCallback((chat: Chat) => {
+    dispatch({ type: "SET_ACTIVE_CHAT", payload: chat });
+  }, []);
 
-      if (!response.ok) {
-        throw new Error('Failed to send message');
-      }
-
-      const data = await response.json();
-      const message = data.message || data;
-
-      // Send message through WebSocket
-      wsService.send('newMessage', { chatId, message });
-
-      // Only dispatch if the message isn't already in the state
-      if (!state.messages[chatId]?.find(m => m._id === message._id)) {
-        dispatch({
-          type: 'ADD_MESSAGE',
-          payload: { chatId, message },
-        });
-
-        dispatch({
-          type: 'UPDATE_CHAT',
-          payload: {
-            ...state.chats.find(chat => chat._id === chatId)!,
-            lastMessage: message
+  const sendMessage = useCallback(
+    async (chatId: string, content: string) => {
+      try {
+        const response = await fetch(
+          `http://localhost:3000/api/chats/${chatId}/messages`,
+          {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+              Authorization: `Bearer ${getStoredToken()}`,
+            },
+            body: JSON.stringify({ content }),
           }
+        );
+
+        if (!response.ok) {
+          throw new Error("Failed to send message");
+        }
+
+        const data = await response.json();
+        const message = data.message || data;
+
+        logger.debug("ChatContext", "Message created, sending via WebSocket", {
+          chatId,
+          messageId: message._id,
+        });
+
+        // Update local state first
+        const existingChat = currentStateRef.current.chats.find(
+          (chat) => chat._id === chatId
+        );
+        if (existingChat) {
+          // Add message to messages array
+          dispatch({
+            type: "ADD_MESSAGE",
+            payload: { chatId, message },
+          });
+
+          // Update chat with latest message
+          const updatedChat = {
+            ...existingChat,
+            lastMessage: message,
+            updatedAt: new Date().toISOString(),
+          };
+
+          dispatch({
+            type: "UPDATE_CHAT",
+            payload: updatedChat,
+          });
+        }
+
+        // Send message through WebSocket after updating local state
+        wsService.sendMessage(chatId, message);
+      } catch (error) {
+        logger.error("ChatContext", "Error sending message", error);
+        dispatch({
+          type: "SET_ERROR",
+          payload:
+            error instanceof Error ? error.message : "Failed to send message",
         });
       }
+    },
+    [] // Remove state.chats dependency
+  );
+
+  const userId = useMemo(() => {
+    try {
+      return JSON.parse(localStorage.getItem("chat_user") || "{}")._id;
     } catch (error) {
-      console.error('Error sending message:', error);
-      dispatch({
-        type: 'SET_ERROR',
-        payload: error instanceof Error ? error.message : 'Failed to send message',
-      });
+      logger.error("ChatContext", "Error parsing user data", error);
+      return null;
     }
-  }, [state.messages, state.chats]);
+  }, []);
+
+  const sendTypingStatus = useCallback(
+    (chatId: string, isTyping: boolean) => {
+      if (!userId) return;
+      wsService.sendTyping(chatId, isTyping, userId);
+    },
+    [userId]
+  );
 
   return (
     <ChatContext.Provider
@@ -345,6 +620,7 @@ export function ChatProvider({ children }: { children: ReactNode }) {
         sendMessage,
         loadMessages,
         loadChats,
+        sendTypingStatus,
       }}
     >
       {children}
@@ -356,7 +632,7 @@ export function ChatProvider({ children }: { children: ReactNode }) {
 export function useChat() {
   const context = useContext(ChatContext);
   if (!context) {
-    throw new Error('useChat must be used within a ChatProvider');
+    throw new Error("useChat must be used within a ChatProvider");
   }
   return context;
-} 
+}

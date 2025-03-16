@@ -4,28 +4,43 @@ A modern real-time chat application built with React, Node.js, and Socket.IO.
 
 ## Features
 
-- Real-time messaging
-- User authentication
+- Real-time messaging with WebSocket reconnection handling
+- Robust user authentication with token management
+- Automatic WebSocket reconnection on connection loss
+- Efficient chat state management
 - Online/offline status
 - Message delivery status
 - Typing indicators
 - User search
 - Responsive design
+- Error handling and logging
 
 ## Tech Stack
 
 ### Frontend
+
 - React
 - TypeScript
 - TailwindCSS
 - Socket.IO Client
+- Context API for state management
 
 ### Backend
+
 - Node.js
 - Express
 - MongoDB
 - Socket.IO
 - JWT Authentication
+
+## Recent Improvements
+
+- Enhanced WebSocket connection stability with automatic reconnection
+- Improved authentication token handling
+- Optimized chat state management to prevent unnecessary re-renders
+- Added comprehensive error handling and logging
+- Fixed race conditions in chat message handling
+- Improved API endpoint consistency
 
 ## Getting Started
 
@@ -38,12 +53,14 @@ A modern real-time chat application built with React, Node.js, and Socket.IO.
 ### Installation
 
 1. Clone the repository
+
 ```bash
 git clone https://github.com/yourusername/chatApp.git
 cd chatApp
 ```
 
 2. Install dependencies
+
 ```bash
 # Install backend dependencies
 cd backend
@@ -57,6 +74,7 @@ npm install
 3. Environment Setup
 
 Create a `.env` file in the backend directory:
+
 ```env
 PORT=3000
 MONGODB_URI=your_mongodb_uri
@@ -66,12 +84,14 @@ JWT_SECRET=your_jwt_secret
 4. Start the application
 
 Backend:
+
 ```bash
 cd backend
 npm run dev
 ```
 
 Frontend:
+
 ```bash
 cd frontend
 npm start
@@ -111,4 +131,4 @@ chatApp/
 
 ## License
 
-This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details. 
+This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
